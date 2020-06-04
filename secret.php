@@ -1,10 +1,5 @@
 <?php
 
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL | E_STRICT);
-set_time_limit(0);
-
 /**
  * This is class contains logic to get secret phrase from anagram
  *
@@ -33,22 +28,12 @@ class Secret {
     private $_cleanHintKeyMap;
 
     /**
-     * @var string $_cleanHintLength length of the hint string without space
-     */
-    private $_cleanHintLength;
-
-    /**
-     * @var string $_totalSpaceHint total number of space in the hint string
-     */
-    private $_totalSpaceHint;
-
-    /**
-     * @var string $_totalSpaceHint total number of space in the hint string
+     * @var string $_combinationCount count of combinations
      */
     private $_combinationCount;
 
     /**
-     * @var string $_totalSpaceHint total number of space in the hint string
+     * @var string $_secret the secret
      */
     private $_secret = '';
 
@@ -60,8 +45,6 @@ class Secret {
     public function __construct(string $hint) {
         $this->_hint = $hint;
         $this->_cleanHint = str_replace(' ', '', $this->_hint);
-        $this->_cleanHintLength = strlen($this->_cleanHint);
-        $this->_totalSpaceHint = substr_count($this->_hint, ' ');
         $this->_cleanHintKeyMap = count_chars($this->_cleanHint, 1);
         $this->init();
     }
@@ -72,22 +55,39 @@ class Secret {
      * @return void
      */
     public function init() {
-        
-        // Possible words of secret from dictionary
-        $dictWords = $this->_getWordFromDictionary();
+        // Get all the different characters used in the hint
+        $pattern = count_chars($this->_cleanHint, 3);
+
+        // Get possible words of secret from dictionary using given pattern
+        $dictWords = $this->_getWordFromDictionary($pattern);
 
         // Arrange the dictonary words length wise
         $dictWordsByLen = [];
         $dictWordsCountByLen = [];
 
         foreach ($dictWords as $word) {
-            if (!is_array($word) && !isset($dictWordsByLen[strlen($word)])) {
+            // Exclude the words if the character count of the word does not match
+            $patternArr = str_split($pattern);
+            $hasExtraChar = false;
+            foreach($patternArr as $hintChar) {
+                if (substr_count($word, $hintChar) > substr_count($this->_cleanHint, $hintChar)) {
+                    $hasExtraChar = true;
+                    break;
+                }
+            }
+
+            // Exclude the word if the word contain extra hint chracter
+            if ($hasExtraChar) {
+                continue;
+            }
+            elseif (!isset($dictWordsByLen[strlen($word)])) {
                 $dictWordsByLen[strlen($word)] = [];
                 $dictWordsCountByLen[strlen($word)] = 0;
             }
-
-            $dictWordsByLen[strlen($word)][] = $word;
-            $dictWordsCountByLen[strlen($word)] += 1;
+            else {
+                $dictWordsByLen[strlen($word)][] = $word;
+                $dictWordsCountByLen[strlen($word)] += 1;
+            }
         }
 
         $lengthOfDict = array_keys($dictWordsByLen);
@@ -95,14 +95,23 @@ class Secret {
         // Array of possible cross joins for secret
         $possibleCrossJoins = [];
         
-        // Based on available space we can say that max possible depth of the secret should be total space + 1
-        $possibleDepthLevel = $this->_totalSpaceHint + 1;
+        // Max possible depth of the secret should be total space of the hint + 1
+        $possibleDepthLevel = substr_count($this->_hint, ' ') + 1;
 
         // Reduce the subset for dictionary length for possible cross joins
-        $this->_subSetReduce($lengthOfDict, $this->_cleanHintLength, $possibleCrossJoins, $possibleDepthLevel);
+        $this->_subSetReduce(
+            $lengthOfDict,
+            strlen($this->_cleanHint), // Length of clean hint
+            $possibleCrossJoins,
+            $possibleDepthLevel);
 
         // Do sorting to possible cross joins to get the lowest combination first.
-        $possibleCrossJoins = $this->_getSortedCrossJoins($possibleCrossJoins, $dictWordsCountByLen, $possibleDepthLevel);
+        $possibleCrossJoins = $this->_getSortedCrossJoins(
+            $possibleCrossJoins,
+            $dictWordsCountByLen,
+            $possibleDepthLevel);
+        
+        // Find the anagrame using possible cross joins
         $this->_findAnagram($possibleCrossJoins, $dictWordsByLen);
     }
 
@@ -122,7 +131,7 @@ class Secret {
      * @param array $dictWordsByLen
      * @return void
      */
-    protected function _findAnagram($possibleCrossJoins, $dictWordsByLen) {
+    private function _findAnagram($possibleCrossJoins, $dictWordsByLen) {
         foreach ($possibleCrossJoins as $possibleCrossJoin) {
             $anagrams = [];
 
@@ -131,7 +140,7 @@ class Secret {
             }
             
             if ($this->_secret) {
-                return;
+                break;
             }
             
             $this->_analyseCombination($anagrams);
@@ -146,7 +155,7 @@ class Secret {
      * @param array $temp
      * @return void
      */
-    protected function _analyseCombination($anagrams, $current = 0, $temp = []) {
+    private function _analyseCombination($anagrams, $current = 0, $temp = []) {
         if (empty($temp)) {
             $this->_combinationCount = count($anagrams);
         }
@@ -158,7 +167,7 @@ class Secret {
                 foreach ($possibleCombination as $possibleSecret) {
                     if (self::HASH == hash('md5', $possibleSecret)) {
                         $this->_secret = $possibleSecret;
-                        return;
+                        break;
                     }
                 }
             }
@@ -183,16 +192,16 @@ class Secret {
      * @param array $temp
      * @return array|null
      */
-    protected function _getUniqueCombinations($combination, $temp = []) {
+    private function _getUniqueCombinations($combination, $temp = []) {
         if (empty($temp)) {
             $this->_combinationCount = count($combination);
             $result = [];
         }
-        
-        if (count($temp) == $this->_combinationCount) {
+        elseif (count($temp) == $this->_combinationCount) {
             $string = implode(" ", $temp);
             return [$string];
-        } elseif (count($temp) >= $this->_combinationCount) {
+        }
+        elseif (count($temp) >= $this->_combinationCount) {
             return null;
         }
         
@@ -220,7 +229,7 @@ class Secret {
      * @param int $depth
      * @return array
      */
-    protected function _getSortedCrossJoins($cossJoins, $counts, $depth) {
+    private function _getSortedCrossJoins($cossJoins, $counts, $depth) {
         usort($cossJoins, function($first, $next) use($counts) {
             $firstCombination = array_reduce($first, function($product, $item) use($counts) {
                 $product *= $counts[$item];
@@ -236,8 +245,8 @@ class Secret {
         });
 
         return array_values(array_filter($cossJoins, function($item) use($depth) {
-                    return count($item) == $depth;
-                }));
+            return count($item) == $depth;
+        }));
     }
 
     /**
@@ -250,28 +259,27 @@ class Secret {
      * @param array $temp
      * @return void
      */
-    protected function _subSetReduce($dictLength, $hintLength, &$combination, $depth, $temp = []) {
+    private function _subSetReduce($dictLength, $hintLength, &$combination, $depth, $temp = []) {
         if (count($temp) > $depth) {
             return null;
         }
-        
-        if ($hintLength == 0) {
+        elseif ($hintLength === 0) {
             $combination[] = $temp;
             return null;
         }
-        
-        if ($hintLength <= 0) {
+        elseif ($hintLength <= 0) {
             return null;
         }
-        
-        $count = count($dictLength);
-        for ($i = 0; $i < $count; $i++) {
-            if ($hintLength < $dictLength[$i]) {
-                continue;
+        else {
+            $count = count($dictLength);
+            for ($i = 0; $i < $count; $i++) {
+                if ($hintLength < $dictLength[$i]) {
+                    continue;
+                }
+                $temp2 = $temp;
+                $temp2[] = $dictLength[$i];
+                $this->_subSetReduce(array_slice($dictLength, $i), $hintLength - $dictLength[$i], $combination, $depth, $temp2);
             }
-            $temp2 = $temp;
-            $temp2[] = $dictLength[$i];
-            $this->_subSetReduce(array_slice($dictLength, $i), $hintLength - $dictLength[$i], $combination, $depth, $temp2);
         }
     }
 
@@ -280,19 +288,15 @@ class Secret {
      * 
      * @return array
      */
-    protected function _getWordFromDictionary() {
-        // Get all the different characters used in the hint
-        $pattern = count_chars($this->_cleanHint, 3);
-
+    private function _getWordFromDictionary($pattern) {
         // Content of the dictionary
         $dictionary = file_get_contents('./dict');
 
         // Match the available words in the dictionary based on pattern of the hint
         preg_match_all("/^([$pattern]+)$/im", $dictionary, $possibleWords);
 
-        return $possibleWords[0]; // All possible words from dictionary
+        return array_shift($possibleWords); // All possible words from dictionary
     }
-
 }
 
 /* @var $secret Secret */
